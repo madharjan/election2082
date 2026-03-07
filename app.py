@@ -7,6 +7,7 @@ FPTP data: https://result.election.gov.np/FPTPWLChartResult2082.aspx
 import sys
 import heapq
 import requests
+from datetime import datetime, timezone, timedelta
 from deep_translator import GoogleTranslator
 
 sys.stdout.reconfigure(encoding='utf-8')
@@ -213,8 +214,10 @@ def print_results(total_votes: int, results: list[dict], total_seats: int,
     pr_parties   = len([r for r in results if not r.get("excluded")])
     tf = {"won": sum(v["won"] for v in fptp.values()),
           "total": sum(v["total"] for v in fptp.values())}
+    _NST = timezone(timedelta(hours=5, minutes=45))
+    now_nst = datetime.now(_NST).strftime("%Y-%m-%d %H:%M NST")
     print()
-    print(f"  Nepal Election 2082 — FPTP Results & PR (Sainte-Laguë)")
+    print(f"  Nepal Election 2082 — FPTP Results & PR (Sainte-Laguë)   [{now_nst}]")
     print(f"  {'─'*54}")
     print(f"  PR  :: Total votes : {total_votes:,}   Seats : {total_seats}   Threshold : {threshold*100:.0f}%   Parties (qualified) : {pr_parties}")
     print(f"  FPTP:: Parties (declared) : {fptp_parties}   Seats (declared): {tf['won']}   Election seats: {tf['total']}  Total seats: {FPTP_TOTAL_SEATS}")
