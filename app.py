@@ -45,7 +45,7 @@ def _new_session() -> tuple[requests.Session, str]:
     """Create a session and return (session, csrf_token)."""
     session = requests.Session()
     session.headers.update(HEADERS)
-    session.get(BASE_URL + PR_PAGE, timeout=20)
+    session.get(BASE_URL + PR_PAGE, timeout=30)
     csrf = session.cookies.get("CsrfToken", "")
     session.headers.update({
         "Referer":          BASE_URL + PR_PAGE,
@@ -58,7 +58,7 @@ def _new_session() -> tuple[requests.Session, str]:
 def fetch_pr_votes() -> tuple[int, list[dict], requests.Session]:
     """Returns (total_votes, parties, session) — session is reused for FPTP."""
     session, _ = _new_session()
-    resp = session.get(BASE_URL + HANDLER + PR_DATA_FILE, timeout=20)
+    resp = session.get(BASE_URL + HANDLER + PR_DATA_FILE, timeout=30)
     resp.raise_for_status()
 
     parties = []
@@ -79,7 +79,7 @@ def fetch_fptp_seats(session: requests.Session) -> dict[str, dict]:
     Returns {nepali_party_name: {"won": int, "lead": int, "total": int}}
     """
     session.headers.update({"Referer": BASE_URL + FPTP_PAGE})
-    resp = session.get(BASE_URL + HANDLER + FPTP_DATA_FILE, timeout=20)
+    resp = session.get(BASE_URL + HANDLER + FPTP_DATA_FILE, timeout=30)
     resp.raise_for_status()
 
     fptp = {}
@@ -218,10 +218,24 @@ def print_results(total_votes: int, results: list[dict], total_seats: int,
     now_nst = datetime.now(_NST).strftime("%Y-%m-%d %H:%M NST")
     print()
     print(f"  Nepal Election 2082 — FPTP Results & PR (Sainte-Laguë)   [{now_nst}]")
-    print(f"  {'─'*54}")
-    print(f"  PR  :: Total votes : {total_votes:,}   Seats : {total_seats}   Threshold : {threshold*100:.0f}%   Parties (qualified) : {pr_parties}")
-    print(f"  FPTP:: Parties (declared) : {fptp_parties}   Seats (declared): {tf['won']}   Election seats: {tf['total']}  Total seats: {FPTP_TOTAL_SEATS}")
+    print(f"  * PR data:   https://result.election.gov.np/PRVoteChartResult2082.aspx")
+    print(f"  * FPTP data: https://result.election.gov.np/FPTPWLChartResult2082.aspx")
+    IC1, IC2, IC3, IC4 = 23, 21, 19, 22
+    ITOP = f"  ┌{'─'*(IC1+2)}┬{'─'*(IC2+2)}┬{'─'*(IC3+2)}┬{'─'*(IC4+2)}┐"
+    ISEP = f"  ├{'─'*(IC1+2)}┼{'─'*(IC2+2)}┼{'─'*(IC3+2)}┼{'─'*(IC4+2)}┤"
+    IBOT = f"  └{'─'*(IC1+2)}┴{'─'*(IC2+2)}┴{'─'*(IC3+2)}┴{'─'*(IC4+2)}┘"
+    thr_str = f"{threshold*100:.0f}%"
+    print(ITOP)
+    print(f"  │ {'Total PR Votes':<{IC1}} │ {'PR Seats':<{IC2}} │ {'PR Threshold':<{IC3}} │ {'PR Parties (qualified)':<{IC4}} │")
+    print(ISEP)
+    print(f"  │ {total_votes:>{IC1},} │ {total_seats:>{IC2}} │ {thr_str:>{IC3}} │ {pr_parties:>{IC4}} │")
+    print(ISEP)
+    print(f"  │ {'FPTP Parties (declared)':<{IC1}} │ {'FPTP Seats (declared)':<{IC2}} │ {'FPTP Election Seats':<{IC3}} │ {'FPTP Total Seats':<{IC4}} │")
+    print(ISEP)
+    print(f"  │ {fptp_parties:>{IC1}} │ {tf['won']:>{IC2}} │ {tf['total']:>{IC3}} │ {FPTP_TOTAL_SEATS:>{IC4}} │")
+    print(IBOT)
     print()
+    declared_total = TOTAL_SEATS + tf["won"]
     print(TOP)
     print(HDR)
     print(SEP)
@@ -230,17 +244,18 @@ def print_results(total_votes: int, results: list[dict], total_seats: int,
         votes = f"{r['votes']:,}" if r["votes"] else "—"
         share = f"{r['vote_share']*100:.2f}%" if r["vote_share"] else "—"
         seats = str(r["pr_seats"]) if r["pr_seats"] else ("—" if not r["votes"] else "")
-        pct   = seat_pct(r["fptp_total"], tf["total"])
+        party_total = r["pr_seats"] + r["fptp_won"]
+        pct   = seat_pct(party_total, declared_total)
         print(f"│ {name:<{COL}} │ {votes:>10} │ {share:>8} │"
-              f" {seats:>8} │ {r['fptp_won']:>5} │ {r['fptp_total']:>6} │ {pct:>7} │")
+              f" {seats:>8} │ {r['fptp_won']:>5} │ {party_total:>6} │ {pct:>7} │")
     print(SEP)
     total_pr_votes = sum(r["votes"] for r in rows)
     total_share    = sum(r["vote_share"] for r in rows if r["votes"]) * 100
     fptp_undeclared  = FPTP_TOTAL_SEATS - tf["won"]
     total_undeclared = (TOTAL_SEATS + tf["total"]) - (allocated + tf["won"])
-    declared_pct = seat_pct(tf["total"], tf["total"])
+    declared_pct = seat_pct(declared_total, TOTAL_SEATS + FPTP_TOTAL_SEATS)
     print(f"│ {'Declared':<{COL}} │ {total_pr_votes:>10,} │ {total_share:>7.2f}% │"
-          f" {allocated:>8} │ {tf['won']:>5} │ {tf['total']:>6} │ {declared_pct:>7} │")
+          f" {allocated:>8} │ {tf['won']:>5} │ {declared_total:>6} │ {declared_pct:>7} │")
     print(f"│ {'Un-declared':<{COL}} │ {'':>10} │ {'':>8} │"
           f" {'':>8} │ {fptp_undeclared:>5} │ {total_undeclared:>6} │ {'':>7} │")
     print(BOT)

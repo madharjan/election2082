@@ -47,7 +47,7 @@ def _new_session() -> tuple[requests.Session, str]:
   """Create a session and return (session, csrf_token)."""
   session = requests.Session()
   session.headers.update(HEADERS)
-  session.get(BASE_URL + PR_PAGE, timeout=20)
+  session.get(BASE_URL + PR_PAGE, timeout=30)
   csrf = session.cookies.get("CsrfToken", "")
   session.headers.update({
     "Referer":          BASE_URL + PR_PAGE,
@@ -60,7 +60,7 @@ def _new_session() -> tuple[requests.Session, str]:
 def fetch_pr_votes() -> tuple[int, list[dict], requests.Session]:
   """Returns (total_votes, parties, session) — session is reused for FPTP."""
   session, _ = _new_session()
-  resp = session.get(BASE_URL + HANDLER + PR_DATA_FILE, timeout=20)
+  resp = session.get(BASE_URL + HANDLER + PR_DATA_FILE, timeout=30)
   resp.raise_for_status()
 
   parties = []
@@ -81,7 +81,7 @@ def fetch_fptp_seats(session: requests.Session) -> dict[str, dict]:
     Returns {nepali_party_name: {"won": int, "lead": int, "total": int}}
     """
   session.headers.update({"Referer": BASE_URL + FPTP_PAGE})
-  resp = session.get(BASE_URL + HANDLER + FPTP_DATA_FILE, timeout=20)
+  resp = session.get(BASE_URL + HANDLER + FPTP_DATA_FILE, timeout=30)
   resp.raise_for_status()
 
   fptp = {}
@@ -226,6 +226,7 @@ def _get_data() -> dict:
     "fptp_total_seats":  FPTP_TOTAL_SEATS,
     "election_seats":    tf["total"],
     "allocated_pr":      allocated,
+    "declared_total":    TOTAL_SEATS + tf["won"],
     "fptp_undeclared":   fptp_undeclared,
     "total_undeclared":  total_undeclared,
     "parties": [
@@ -268,7 +269,8 @@ def html_results(**p):
     share = f"{r['vote_share']:.2f}%" if r["vote_share"] else "—"
     votes = f"{r['votes']:,}"          if r["votes"]      else "—"
     seats = str(r["pr_seats"])         if r["pr_seats"]   else ("—" if not r["votes"] else "")
-    sp    = pct(r["fptp_total"], d["election_seats"])
+    total_seats = r["pr_seats"] + r["fptp_won"]
+    sp    = pct(total_seats, d["declared_total"])
     party_rows += (
       f"<tr>"
       f"<td>{r['name']}</td>"
@@ -276,14 +278,14 @@ def html_results(**p):
       f"<td class='r'>{share}</td>"
       f"<td class='r'>{seats}</td>"
       f"<td class='r'>{r['fptp_won']}</td>"
-      f"<td class='r'>{r['fptp_total']}</td>"
+      f"<td class='r'>{total_seats}</td>"
       f"<td class='r'>{sp}</td>"
       f"</tr>\n"
     )
 
   total_votes_fmt = f"{d['total_votes']:,}"
   total_share     = sum(r["vote_share"] for r in rows if r["votes"])
-  declared_pct    = pct(d["election_seats"], d["election_seats"])
+  declared_pct    = pct(d["declared_total"], TOTAL_SEATS + FPTP_TOTAL_SEATS)
 
   html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -294,25 +296,46 @@ def html_results(**p):
   <style>
     body {{ font-family: monospace; padding: 1rem; background:#f9f9f9; color:#111; }}
     h1   {{ font-size:1.1rem; margin-bottom:.25rem; }}
-    .meta{{ font-size:.85rem; color:#555; margin-bottom:1rem; }}
+    .meta{{ font-size:.85rem; color:#555; margin-bottom:.5rem; }}
     table{{ border-collapse:collapse; width:100%; font-size:.85rem; }}
     th,td{{ border:1px solid #ccc; padding:.3rem .6rem; white-space:nowrap; }}
     th   {{ background:#222; color:#fff; text-align:center; }}
     tr:nth-child(even){{ background:#f0f0f0; }}
     .r   {{ text-align:right; }}
     tfoot td{{ font-weight:bold; background:#e8e8e8; }}
+    .info{{ width:auto; margin-bottom:1rem; }}
+    .info th{{ text-align:left; }}
+    .info td{{ text-align:right; }}
+    .subhdr td{{ background:#444; color:#fff; font-weight:bold; }}
   </style>
 </head>
 <body>
   <h1>Nepal Election 2082 — FPTP &amp; PR (Sainte-Laguë) Results</h1>
   <p class="meta">
-    Fetched: {d['fetched_at']}<br>
-    PR: {total_votes_fmt} votes &nbsp;|&nbsp; {d['pr_seats']} seats &nbsp;|&nbsp;
-    Threshold: {d['threshold_pct']:.0f}% &nbsp;|&nbsp; Qualified parties: {d['pr_parties_qualified']}<br>
-    FPTP: {d['fptp_parties']} parties declared &nbsp;|&nbsp;
-    Seats declared: {d['fptp_declared']} &nbsp;|&nbsp; Election seats: {d['election_seats']} &nbsp;|&nbsp;
-    Total seats: {d['fptp_total_seats']}
+    Fetched: {d['fetched_at']} <br/>
+    PR data : <a href="https://result.election.gov.np/PRVoteChartResult2082.aspx">https://result.election.gov.np/PRVoteChartResult2082.aspx</a> <br/>
+    FPTP data: <a href="https://result.election.gov.np/FPTPWLChartResult2082.aspx">https://result.election.gov.np/FPTPWLChartResult2082.aspx</a> 
   </p>
+  <table class="info">
+    <thead>
+      <tr><th>Total PR Votes</th><th>PR Seats</th><th>PR Threshold</th><th>PR Parties (qualified)</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>{total_votes_fmt}</td>
+        <td>{d['pr_seats']}</td>
+        <td>{d['threshold_pct']:.0f}%</td>
+        <td>{d['pr_parties_qualified']}</td>
+      </tr>
+      <tr class="subhdr"><td>FPTP Parties (declared)</td><td>FPTP Seats (declared)</td><td>FPTP Election Seats</td><td>FPTP Total Seats</td></tr>
+      <tr>
+        <td>{d['fptp_parties']}</td>
+        <td>{d['fptp_declared']}</td>
+        <td>{d['election_seats']}</td>
+        <td>{d['fptp_total_seats']}</td>
+      </tr>
+    </tbody>
+  </table>
   <table>
     <thead>
       <tr>
@@ -320,8 +343,8 @@ def html_results(**p):
         <th>PR Votes</th>
         <th>Share</th>
         <th>PR Seats</th>
-        <th>FPTP Won</th>
-        <th>FPTP Total</th>
+        <th>FPTP Seats</th>
+        <th>Total Seats</th>
         <th>Seats %</th>
       </tr>
     </thead>
@@ -334,7 +357,7 @@ def html_results(**p):
         <td class='r'>{total_share*100:.2f}%</td>
         <td class='r'>{d['allocated_pr']}</td>
         <td class='r'>{d['fptp_declared']}</td>
-        <td class='r'>{d['election_seats']}</td>
+        <td class='r'>{d['declared_total']}</td>
         <td class='r'>{declared_pct}</td>
       </tr>
       <tr>
