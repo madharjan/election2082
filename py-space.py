@@ -8,6 +8,8 @@ FPTP data: https://result.election.gov.np/FPTPWLChartResult2082.aspx
 import anvil.server
 import sys
 import heapq
+import json
+import os
 import requests
 from datetime import datetime, timezone, timedelta
 from deep_translator import GoogleTranslator
@@ -195,8 +197,38 @@ def _build_rows(results: list[dict], total_votes: int,
 
 # ─── Shared data fetch ────────────────────────────────────────────────────────
 
+_CACHE_FILE = os.path.join(os.sep, "tmp", "election2082_cache.json")
+_CACHE_TTL  = timedelta(minutes=5)
+
+
+def _load_cache() -> dict | None:
+  try:
+    with open(_CACHE_FILE, "r", encoding="utf-8") as f:
+      c = json.load(f)
+    ts = datetime.fromisoformat(c["_cached_at"])
+    if (datetime.now(timezone.utc) - ts) < _CACHE_TTL:
+      return c
+  except Exception:
+    pass
+  return None
+
+
+def _save_cache(data: dict) -> None:
+  try:
+    payload = {**data, "_cached_at": datetime.now(timezone.utc).isoformat()}
+    with open(_CACHE_FILE, "w", encoding="utf-8") as f:
+      json.dump(payload, f, ensure_ascii=False)
+  except Exception:
+    pass
+
+
 def _get_data() -> dict:
-  """Fetch live data and compute rows + summary stats."""
+  """Return cached data if fetched within the last 5 minutes, else fetch live."""
+  cached = _load_cache()
+  if cached is not None:
+    cached.pop("_cached_at", None)
+    return {**cached, "from_cache": True}
+
   total_votes, parties, session = fetch_pr_votes()
   fptp    = fetch_fptp_seats(session)
   results = sainte_lague(parties, TOTAL_SEATS, THRESHOLD)
@@ -215,7 +247,7 @@ def _get_data() -> dict:
   _NST    = timezone(timedelta(hours=5, minutes=45))
   now_nst = datetime.now(_NST).strftime("%Y-%m-%d %H:%M NST")
 
-  return {
+  _cache = {
     "fetched_at":        now_nst,
     "total_votes":       total_votes,
     "pr_seats":          TOTAL_SEATS,
@@ -242,16 +274,17 @@ def _get_data() -> dict:
       for r in rows
     ],
   }
+  _save_cache(_cache)
+  return {**_cache, "from_cache": False}
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
 @anvil.server.route('/json')
 def json_results(**p):
-  import json
   data = _get_data()
-  json = json.dumps(data, ensure_ascii=False, indent=2)
-  resp = anvil.server.HttpResponse(200, json)
+  body = json.dumps(data, ensure_ascii=False, indent=2)
+  resp = anvil.server.HttpResponse(200, body)
   resp.headers["Content-Type"] = "application/json; charset=utf-8"
   return resp
 
@@ -312,7 +345,7 @@ def html_results(**p):
 <body>
   <h1>Nepal Election 2082 — FPTP &amp; PR (Sainte-Laguë) Results</h1>
   <p class="meta">
-    Fetched: {d['fetched_at']} <br/>
+    Fetched: {d['fetched_at']} &nbsp;·&nbsp; {'cached' if d['from_cache'] else 'live'} <br/>
     PR data : <a href="https://result.election.gov.np/PRVoteChartResult2082.aspx">https://result.election.gov.np/PRVoteChartResult2082.aspx</a> <br/>
     FPTP data: <a href="https://result.election.gov.np/FPTPWLChartResult2082.aspx">https://result.election.gov.np/FPTPWLChartResult2082.aspx</a> 
   </p>
