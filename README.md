@@ -6,6 +6,11 @@ Nepal Election 2082 — FPTP Results & PR (Sainte-Laguë) Seat Allocation
 * PR data:   <https://result.election.gov.np/PRVoteChartResult2082.aspx>
 * FPTP data: <https://result.election.gov.np/FPTPWLChartResult2082.aspx>
 
+## Public URLs
+
+* https://tiny.cc/election2082
+* https://steel-kind-treeshrew.anvil.app/html
+
 ## Requirements
 
 Install dependencies:
